@@ -38,7 +38,7 @@ package menuapp_db {
   }
 
   class NutritionalTargets {
-    +targets: jsonb <<PK>>
+    +userInfo: jsonb <<PK>>
     nutritionals: jsonb
   }
 
