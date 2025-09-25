@@ -1,0 +1,8 @@
+datadir=/Users/hiruse/Desktop/menu-app/build/Data/Sample/1.2.13
+
+Name: Sample
+Description: Sample models
+URL: https://projects.coin-or.org/svn/Data/Sample
+Version: 1.2.13
+Libs:
+Cflags:

@@ -1,0 +1,10 @@
+prefix=/Users/hiruse/cbc
+libdir=/Users/hiruse/Desktop/menu-app/build/Osi/0.108.11/src/OsiCommonTest
+
+Name: OsiUnitTests
+Description: COIN-OR Open Solver Interface Common Unit Tests
+URL: https://projects.coin-or.org/Osi
+Version: 0.108.11
+Libs: ${libdir}/libOsiCommonTests.la
+Cflags: -I/Users/hiruse/Desktop/menu-app/Osi/Osi/src/OsiCommonTest
+Requires: osi

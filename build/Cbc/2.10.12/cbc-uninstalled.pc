@@ -1,0 +1,10 @@
+prefix=/Users/hiruse/cbc
+libdir=/Users/hiruse/Desktop/menu-app/build/Cbc/2.10.12/src
+
+Name: CBC
+Description: COIN-OR Branch and Cut
+URL: https://projects.coin-or.org/Cbc
+Version: 2.10.12
+Libs: ${libdir}/libCbcSolver.la ${libdir}/libCbc.la -lpthread 
+Cflags: -I/Users/hiruse/Desktop/menu-app/Cbc/Cbc/src -I/Users/hiruse/Desktop/menu-app/build/Cbc/2.10.12/src
+Requires: clp osi-clp cgl osi coinutils 

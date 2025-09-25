@@ -211,9 +211,9 @@ def show_item():
     item_equals = db.session.query(ItemEqual).all()
     item_equal_map = {}
     for eq in item_equals:
-        for k, v in eq.equals.items():
+        equals_list = eq.equals.split(',') if eq.equals else []
+        for k in equals_list:
             item_equal_map[k] = eq.itemName
-            item_equal_map[v] = eq.itemName
         item_equal_map[eq.itemName] = eq.itemName
 
     # recipeIdごとにitemsを集計
@@ -325,4 +325,4 @@ def logout():
     return redirect('/login')
 
 
-#Flask --app menuapp run --debug で実行
+#Flask --app main.menuapp run --debug で実行

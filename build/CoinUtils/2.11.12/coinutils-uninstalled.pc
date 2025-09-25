@@ -1,0 +1,10 @@
+prefix=/Users/hiruse/cbc
+libdir=/Users/hiruse/Desktop/menu-app/build/CoinUtils/2.11.12/src
+
+Name: CoinUtils
+Description: COIN-OR Utilities
+URL: https://projects.coin-or.org/CoinUtils
+Version: 2.11.12
+Libs: ${libdir}/libCoinUtils.la -lbz2 -lz -lm 
+Cflags: -I/Users/hiruse/Desktop/menu-app/CoinUtils/CoinUtils/src -I/Users/hiruse/Desktop/menu-app/build/CoinUtils/2.11.12/src
+Requires: 

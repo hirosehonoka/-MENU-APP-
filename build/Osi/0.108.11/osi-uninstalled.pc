@@ -1,0 +1,10 @@
+prefix=/Users/hiruse/cbc
+libdir=/Users/hiruse/Desktop/menu-app/build/Osi/0.108.11/src/Osi
+
+Name: Osi
+Description: COIN-OR Open Solver Interface
+URL: https://projects.coin-or.org/Osi
+Version: 0.108.11
+Libs: ${libdir}/libOsi.la 
+Cflags: -I/Users/hiruse/Desktop/menu-app/Osi/Osi/src/Osi -I/Users/hiruse/Desktop/menu-app/build/Osi/0.108.11/src/Osi
+Requires: coinutils 
