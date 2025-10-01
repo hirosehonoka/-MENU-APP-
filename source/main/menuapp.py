@@ -8,12 +8,16 @@ from flask_login import UserMixin,LoginManager,login_user,login_required,logout_
 from werkzeug.security import generate_password_hash,check_password_hash
 import os
 from collections import defaultdict
+from dotenv import load_dotenv
 
 app = Flask(__name__)
 
 app.jinja_env.globals['getattr'] = getattr
 
 app.config["SECRET_KEY"] = os.urandom(24)
+
+load_dotenv() 
+api_key = os.environ["PERPLEXITY_API_KEY"]
 
 #ログイン管理システム
 login_manager = LoginManager()
@@ -231,6 +235,87 @@ def show_item():
     total_types = len(aggregated_ingredients)
 
     return render_template('item.html', ingredients=aggregated_ingredients, total_types=total_types, current_page='item', show_navbar=True)
+
+@menu_bp.route('/createmenu', methods=['GET','POST'])
+@login_required
+def create_menu():
+    # 1. ログインユーザ情報取得
+    user = User.query.filter_by(userName=current_user.userName).first()
+    if not user or not user.targets:
+        flash("ユーザーターゲットが登録されていません")
+        return redirect(url_for('index'))
+    user_targets = user.targets # jsonb型。Pythonではdict想定
+    
+    # 2. NutritionalTargetからマッチングレコード探索
+    # 年齢、性別、運動レベル
+    targets_conditions = user_targets.copy()
+    age = targets_conditions.get('年齢', None)
+    sex = targets_conditions.get('性別', None)
+    activity = targets_conditions.get('運動レベル', None)
+
+    # 「75歳以上」かつ「運動レベル 高い」なら運動レベルを「ふつう」に
+    activity_query = activity
+    if age and ('75' in age and activity == '高い'):
+        activity_query = 'ふつう'
+
+    # SQLAlchemyによるjsonbフィールド完全一致 AND 年齢・性別・運動レベル条件
+    nt = NutritionalTarget.query.filter(
+        NutritionalTarget.targets['年齢'].astext == age,
+        NutritionalTarget.targets['性別'].astext == sex,
+        NutritionalTarget.targets['運動レベル'].astext == activity_query
+    ).first()
+    if nt is None:
+        flash("栄養ターゲットが見つかりません")
+        return redirect(url_for('index'))
+    nutritional = nt.nutritional
+    
+    # 3. レシピ・食材・関連データ一式をIDごとにまとめて取得
+    recipes = Recipe.query.all()
+    recipe_nutritions = {r.recipeId: r.nutritions for r in RecipeNutrition.query.all()}
+    recipe_items = {ri.recipeId: ri.items for ri in RecipeItem.query.all()}
+    item_weights = {iw.itemName: iw.weights for iw in ItemWeight.query.all()}
+    item_equals = {ie.itemName: ie.equals for ie in ItemEqual.query.all()}
+
+    # 4. プロンプト文生成（prompt.py等に委譲することを推奨）
+    # データのまとめ
+    planning_data = {
+        "nutritional_targets": nutritional,
+        "recipes": [r.data for r in recipes],
+        "recipe_nutritions": recipe_nutritions,
+        "recipe_items": recipe_items,
+        "item_weights": item_weights,
+    }
+    from prompt import generate_prompt  # 別ファイルでprompt生成
+    solution_prompt = generate_prompt(planning_data)
+    
+    # 5. perplexityAPIで定式化
+    import requests
+    api_url = "https://api.perplexity.ai/v1/generate"  # 仮
+    headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
+    api_resp = requests.post(api_url, headers=headers, json={"prompt": solution_prompt})
+    api_resp.raise_for_status()
+    optimization_input = api_resp.json().get('content')  # 期待される定式化テキスト
+
+    # 6. Pyomo（+cbc）最適化
+    from menu_planner import optimize_menu  # Pyomoモデル構築・解決部は分離推奨
+    day_menus = optimize_menu(optimization_input)  # menu1, ..., menu7のJSON/dictが返る前提
+
+    # 7. 曜日ごとのMenuレコード保存
+    menu_obj = Menu(
+        userName=current_user.userName,
+        menu1=json.dumps(day_menus.get('menu1', {})),
+        menu2=json.dumps(day_menus.get('menu2', {})),
+        menu3=json.dumps(day_menus.get('menu3', {})),
+        menu4=json.dumps(day_menus.get('menu4', {})),
+        menu5=json.dumps(day_menus.get('menu5', {})),
+        menu6=json.dumps(day_menus.get('menu6', {})),
+        menu7=json.dumps(day_menus.get('menu7', {}))
+    )
+    db.session.add(menu_obj)
+    db.session.commit()
+
+    return redirect(url_for('/menu', menu_id=menu_obj.id))
+
 
 # @app.route("/nutritional")
 # @login_required
