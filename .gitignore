@@ -9,3 +9,10 @@ __pycache__/
 
 # OSやエディタの不要ファイル
 .DS_Store
+
+Cbc/
+Cgl/
+Clp/
+CoinUtils/
+build/
+Osi/
