@@ -1,1 +1,0 @@
-/Users/hiruse/Desktop/menu-app/Clp/Clp/examples/hello.mps

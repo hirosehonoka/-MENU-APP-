@@ -1,1 +1,0 @@
-/Users/hiruse/Desktop/menu-app/Data/Sample/wedding_16.mps

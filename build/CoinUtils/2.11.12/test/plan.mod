@@ -1,1 +1,0 @@
-/Users/hiruse/Desktop/menu-app/CoinUtils/CoinUtils/test/plan.mod

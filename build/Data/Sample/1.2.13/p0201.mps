@@ -1,1 +1,0 @@
-/Users/hiruse/Desktop/menu-app/Data/Sample/p0201.mps

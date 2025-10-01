@@ -1,1 +1,0 @@
-/Users/hiruse/Desktop/menu-app/Data/Sample/exmip1.5.mps

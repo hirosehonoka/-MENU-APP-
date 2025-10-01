@@ -1,8 +1,0 @@
-datadir=/Users/hiruse/Desktop/menu-app/build/Data/miplib3/1.2.9
-
-Name: Miplib3
-Description: MIPLIB3 models
-URL: https://projects.coin-or.org/svn/Data/miplib3
-Version: 1.2.9
-Libs:
-Cflags:

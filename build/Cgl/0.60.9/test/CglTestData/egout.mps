@@ -1,1 +1,0 @@
-/Users/hiruse/Desktop/menu-app/Cgl/Cgl/test/CglTestData/egout.mps

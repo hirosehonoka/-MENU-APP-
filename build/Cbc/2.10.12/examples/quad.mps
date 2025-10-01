@@ -1,1 +1,0 @@
-/Users/hiruse/Desktop/menu-app/Cbc/Cbc/examples/quad.mps
