@@ -1,0 +1,11 @@
+# 環境変数・APIキーなど
+.env
+
+# 仮想環境
+.venv/
+
+# Pythonキャッシュ
+__pycache__/
+
+# OSやエディタの不要ファイル
+.DS_Store
