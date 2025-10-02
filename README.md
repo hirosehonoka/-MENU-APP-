@@ -2,9 +2,9 @@
 
 ###githubコミットの仕方
 - github --> local
- - 'git pull origin main'
+ - `git pull origin main`
 
 - local --> github
- - 'git add .'
- - 'git commit -m "コメント"'
- - 'git push origin main'
+ - `git add .`
+ - `git commit -m "コメント"`
+ - `git push origin main`
