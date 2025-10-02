@@ -1,8 +1,8 @@
 # -MENU-APP-
 
-###githubコミットの仕方
+githubコミットの仕方
 - github --> local
- - `git pull origin main`
+ -- `git pull origin main`
 
 - local --> github
  - `git add .`
