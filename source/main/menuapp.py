@@ -6,9 +6,12 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import sessionmaker
 from flask_login import UserMixin,LoginManager,login_user,login_required,logout_user,current_user
 from werkzeug.security import generate_password_hash,check_password_hash
-import os
+import os,json,requests,re
 from collections import defaultdict
 from dotenv import load_dotenv
+from perplexity import Perplexity
+from pyomo.environ import SolverFactory
+
 
 app = Flask(__name__)
 
@@ -17,7 +20,7 @@ app.jinja_env.globals['getattr'] = getattr
 app.config["SECRET_KEY"] = os.urandom(24)
 
 load_dotenv() 
-api_key = os.environ["PERPLEXITY_API_KEY"]
+client = Perplexity() # Uses PERPLEXITY_API_KEY from .env file
 
 #ログイン管理システム
 login_manager = LoginManager()
@@ -41,10 +44,10 @@ RecipeUrl = Base.classes.recipeUrls
 Menu = Base.classes.menu
 ItemEqual = Base.classes.itemEquals
 RecipeItem = Base.classes.recipeItems
-# RecipeNutrition = Base.classes.recipeNutritions
-# Recipe = Base .classes.recipes
-# ItemWeight = Base .classes .itemWeights
-# NutritionalTarget = Base .classes.nutritionalTargets
+RecipeNutrition = Base.classes.recipeNutritions
+Recipe = Base .classes.recipes
+ItemWeight = Base .classes .itemWeights
+NutritionalTarget = Base .classes.nutritionalTargets
 User = Base.classes.user
 
 with app.app_context():
@@ -58,6 +61,65 @@ def load_user(user_id):
     if user:
         return UserWrapper(user)
     return None
+
+#プロンプト用テキストファイルを読み込む
+def data2str(data):
+    return str(data)
+def generate_prompt(planning_data):
+    base_dir = os.path.dirname(__file__)
+    prompt_file_path = os.path.join(base_dir, "prompt_test1.txt")
+    with open(prompt_file_path, encoding="utf-8") as f:
+        prompt_template = f.read()
+    return prompt_template.format(problem_data=str(planning_data))
+
+#MarkDown削除用
+def extract_python_code(text):
+    # Markdownコードブロック (```python ... ```
+    m = re.search(r"```(?:python|パイソン)?\s*([\s\S]*?)```", text, re.DOTALL)
+    if m:
+        code_str = m.group(1)
+    else:
+        code_str = text
+    return code_str.strip()
+
+#辞書化関数・kind1の補完
+def as_dict(row):
+    out = {c.name: getattr(row, c.name) for c in row.__table__.columns}
+    # 万一欠損があれば補完
+    if 'kind1' not in out:
+        out['kind1'] = ''
+    return out
+
+#日毎の献立
+def extract_day_menus_with_categories(model, recipe_list):
+    day_menus = {}
+    # インデックスが range(1,8) などの場合はlist化してループ
+    for d in list(model.Days):
+        menu = {}
+        for cat in ['stample', 'main', 'soup', 'side']:
+            if hasattr(model, cat):
+                var = getattr(model, cat)
+                # 値が最大のレシピを抽出
+                selected_r = None
+                max_val = -float('inf')
+                for r in list(model.Recipes):
+                    v = var[d, r].value
+                    if v is not None and v > max_val:
+                        max_val = v
+                        selected_r = r
+                if max_val >= 0.5:  # 0/1バイナリの場合。floatなら>=0.5で判定
+                    # rがIDならタイトル対応（recipe_list中からrを探す）
+                    recipe_title = None
+                    for rec in recipe_list:
+                        if rec.get('recipeId') == selected_r:
+                            recipe_title = rec.get('recipeTitle')
+                            break
+                    menu[cat] = {'id': selected_r, 'title': recipe_title}
+                else:
+                    menu[cat] = None  # 未選択の場合
+        day_menus[f"menu{d}"] = menu
+    return day_menus
+
 
 class User(UserMixin,db.Model):
     userId = db.Column(db.Integer,primary_key=True)
@@ -236,22 +298,22 @@ def show_item():
 
     return render_template('item.html', ingredients=aggregated_ingredients, total_types=total_types, current_page='item', show_navbar=True)
 
-@menu_bp.route('/createmenu', methods=['GET','POST'])
+@app.route('/createmenu', methods=['GET','POST'])
 @login_required
 def create_menu():
     # 1. ログインユーザ情報取得
-    user = User.query.filter_by(userName=current_user.userName).first()
-    if not user or not user.targets:
+    user = db.session.query(User).filter_by(userName=current_user.userName).first()
+    if not user or not user.userInfo:
         flash("ユーザーターゲットが登録されていません")
         return redirect(url_for('index'))
-    user_targets = user.targets # jsonb型。Pythonではdict想定
+    user_userInfo = user.userInfo # jsonb型。Pythonではdict想定
     
     # 2. NutritionalTargetからマッチングレコード探索
     # 年齢、性別、運動レベル
-    targets_conditions = user_targets.copy()
-    age = targets_conditions.get('年齢', None)
-    sex = targets_conditions.get('性別', None)
-    activity = targets_conditions.get('運動レベル', None)
+    userInfo_conditions = user_userInfo.copy()
+    age = userInfo_conditions.get('年齢', None)
+    gender = userInfo_conditions.get('性別', None)
+    activity = userInfo_conditions.get('運動レベル', None)
 
     # 「75歳以上」かつ「運動レベル 高い」なら運動レベルを「ふつう」に
     activity_query = activity
@@ -259,46 +321,114 @@ def create_menu():
         activity_query = 'ふつう'
 
     # SQLAlchemyによるjsonbフィールド完全一致 AND 年齢・性別・運動レベル条件
-    nt = NutritionalTarget.query.filter(
-        NutritionalTarget.targets['年齢'].astext == age,
-        NutritionalTarget.targets['性別'].astext == sex,
-        NutritionalTarget.targets['運動レベル'].astext == activity_query
+    nt = db.session.query(NutritionalTarget).filter(
+        NutritionalTarget.userInfo['年齢'].astext == str(age),
+        NutritionalTarget.userInfo['性別'].astext == str(gender),
+        NutritionalTarget.userInfo['運動レベル'].astext == str(activity_query)
     ).first()
     if nt is None:
         flash("栄養ターゲットが見つかりません")
         return redirect(url_for('index'))
-    nutritional = nt.nutritional
+    nutritional = nt.nutritionals
     
     # 3. レシピ・食材・関連データ一式をIDごとにまとめて取得
-    recipes = Recipe.query.all()
-    recipe_nutritions = {r.recipeId: r.nutritions for r in RecipeNutrition.query.all()}
-    recipe_items = {ri.recipeId: ri.items for ri in RecipeItem.query.all()}
-    item_weights = {iw.itemName: iw.weights for iw in ItemWeight.query.all()}
-    item_equals = {ie.itemName: ie.equals for ie in ItemEqual.query.all()}
+    recipes = db.session.query(Recipe).all()
+    recipe_nutritions = {r.recipeId: r.nutritions for r in db.session.query(RecipeNutrition).all()}
+    recipe_items = {ri.recipeId: ri.items for ri in db.session.query(RecipeItem).all()}
+    item_weights = {iw.itemName: iw.weights for iw in db.session.query(ItemWeight).all()}
+    item_equals = {ie.itemName: ie.equals for ie in db.session.query(ItemEqual).all()}
 
-    # 4. プロンプト文生成（prompt.py等に委譲することを推奨）
-    # データのまとめ
-    planning_data = {
-        "nutritional_targets": nutritional,
-        "recipes": [r.data for r in recipes],
-        "recipe_nutritions": recipe_nutritions,
-        "recipe_items": recipe_items,
-        "item_weights": item_weights,
+    # # 4. プロンプト文生成
+    # # データのまとめ
+    # planning_data = {
+    #     "nutritional_targets": nutritional,
+    #     "recipes": [r.data for r in recipes],
+    #     "recipe_nutritions": recipe_nutritions,
+    #     "recipe_items": recipe_items,
+    #     "item_weights": item_weights,
+    #     "item_equals": item_equals,
+    # }
+    # solution_prompt = generate_prompt(planning_data)
+
+
+    # optimization_input = client.chat.completions.create(
+    #     messages=[{"role": "user", "content": solution_prompt}],
+    #     model="sonar"
+    # )
+
+
+    # # 6. Pyomo（+cbc）最適化
+    # pyomo_code_str_raw = optimization_input.choices[0].message.content
+    # pyomo_code_str = extract_python_code(pyomo_code_str_raw)
+    # print('API出力内容2:')
+    # print(pyomo_code_str)
+
+    #API出力コードの読み込み(ソルバー周辺調整用)
+    base_dir = os.path.dirname(__file__)  # menuapp.pyのある場所
+    api_file_path = os.path.join(base_dir, "api_pyomo_model.py")
+    with open(api_file_path, encoding='utf-8') as f:
+        pyomo_code_str = f.read()
+
+    # SQLAlchemyからリストやディクショナリでデータ取得
+    recipe_dict = {r.recipeId: as_dict(r) for r in db.session.query(Recipe).all()}
+    itemweight_dict = {iw.itemName: as_dict(iw) for iw in db.session.query(ItemWeight).all()}
+    itemequal_dict = {ie.itemName: as_dict(ie) for ie in db.session.query(ItemEqual).all()}
+    recipeitem_dict = {}
+    recipeitem_list = [as_dict(ri) for ri in db.session.query(RecipeItem).all()]
+    for rec in recipeitem_list:
+        rid = rec['recipeId']
+        items = rec.get('items', {})  # itemsカラムが空のときも考慮
+        for item, qty in items.items():
+            recipeitem_dict[(rid, item)] = qty
+    recipenutrition_dict = {rn.recipeId: as_dict(rn) for rn in db.session.query(RecipeNutrition).all()}
+    nutritionaltarget_dict = {"nutritionals": nt.nutritionals,  "userInfo": nt.userInfo}
+    user = db.session.query(User).filter_by(userName=current_user.userName).first()
+    userInfo = user.userInfo
+
+    for v in recipe_dict.values():
+        if 'kind1' not in v:
+            v['kind1'] = ''
+        if 'kind2' not in v:
+            v['kind2'] = ''
+
+    scope = {
+        'Recipe': recipe_dict,
+        'ItemWeight': itemweight_dict,
+        'ItemEqual': itemequal_dict,
+        'RecipeItem': recipeitem_dict,
+        'RecipeNutrition': recipenutrition_dict,
+        'NutritionalTarget': nutritionaltarget_dict,
+        'userInfo': userInfo
     }
-    from prompt import generate_prompt  # 別ファイルでprompt生成
-    solution_prompt = generate_prompt(planning_data)
-    
-    # 5. perplexityAPIで定式化
-    import requests
-    api_url = "https://api.perplexity.ai/v1/generate"  # 仮
-    headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
-    api_resp = requests.post(api_url, headers=headers, json={"prompt": solution_prompt})
-    api_resp.raise_for_status()
-    optimization_input = api_resp.json().get('content')  # 期待される定式化テキスト
 
-    # 6. Pyomo（+cbc）最適化
-    from menu_planner import optimize_menu  # Pyomoモデル構築・解決部は分離推奨
-    day_menus = optimize_menu(optimization_input)  # menu1, ..., menu7のJSON/dictが返る前提
+    exec(pyomo_code_str, scope)
+    build_model = scope['build_model']
+
+    Days = list(range(7)) 
+    Recipes = list(recipe_dict.keys())
+
+    model = build_model(
+        Days,recipe_dict, recipeitem_dict, recipenutrition_dict, nutritionaltarget_dict, userInfo,
+        itemweight_dict, itemequal_dict
+    )
+
+    model.MealCompConstr = pyo.ConstraintList()
+    for d in model.Days:
+        expr_stample = sum(model.stample[d, r] for r in model.Recipes)
+        expr_main = sum(model.main[d, r] for r in model.Recipes)
+        expr_soup = sum(model.soup[d, r] for r in model.Recipes)
+        expr_side = sum(model.side[d, r] for r in model.Recipes)
+        is_rice_or_pasta = sum(model.stample[d, r] for r in RiceOrPastaSet)
+        model.MealCompConstr.add(expr_stample == 1)
+        model.MealCompConstr.add(expr_main == 1)
+        model.MealCompConstr.add(expr_soup == 1)
+        model.MealCompConstr.add(expr_side == 1 - is_rice_or_pasta)
+
+
+    cbc_path = "/Users/hiruse/cbc/bin/cbc"
+    solver = SolverFactory('cbc', executable=cbc_path)  # フルパスを指定
+    results = solver.solve(model)
+    day_menus = extract_day_menus_with_categories(model) 
 
     # 7. 曜日ごとのMenuレコード保存
     menu_obj = Menu(
@@ -314,7 +444,7 @@ def create_menu():
     db.session.add(menu_obj)
     db.session.commit()
 
-    return redirect(url_for('/menu', menu_id=menu_obj.id))
+    return redirect('/menu', menuId=menu_obj.id)
 
 
 # @app.route("/nutritional")
@@ -359,7 +489,7 @@ def signup():
     
 @app.route("/userupdate", methods=['GET', 'POST'])
 @login_required
-def userupdate():
+def user_update():
     user = db.session.query(User).get(current_user.get_id())
 
     if request.method == 'POST':
