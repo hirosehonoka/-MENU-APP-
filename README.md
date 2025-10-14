@@ -9,3 +9,6 @@ local --> github
  - `git add .`
  - `git commit -m "コメント"`
  - `git push origin main`
+
+レコードのリセット
+ - `SELECT setval('"menu_menuId_seq"', (SELECT MAX("menuId") FROM menu));`
