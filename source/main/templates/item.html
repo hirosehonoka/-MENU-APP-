@@ -15,10 +15,12 @@
         </thead>
         <tbody>
           {% for name, qty in ingredients.items() %}
-          <tr>
-            <th scope="row">{{ name }}</th>
-            <td>{{ qty }}</td>
-          </tr>
+            {% if qty != 0 %}
+              <tr>
+                <th scope="row">{{ name }}</th>
+                <td>{{ qty }}</td>
+              </tr>
+            {% endif %}
         {% endfor %}
         </tbody>
       </table>

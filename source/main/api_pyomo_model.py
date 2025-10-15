@@ -81,10 +81,10 @@ def build_model(
             kind2_map[k2] = []
         kind2_map[k2].append(rid)
 
-    # Classify recipes by meal kind for assignment (主食 stample, 主菜 main, 副菜 side, 汁物 soup)
+    # Classify recipes by meal kind for assignment (主食 staple, 主菜 main, 副菜 side, 汁物 soup)
     # Assuming these keys exist in kind1 or kind2 to identify
     # We will define sets:
-    model.StampleRecipes = pyo.Set(initialize=kind1_map.get('stample', []))
+    model.StapleRecipes = pyo.Set(initialize=kind1_map.get('staple', []))
     model.MainRecipes = pyo.Set(initialize=kind1_map.get('main', []))
     model.SideRecipes = pyo.Set(initialize=kind1_map.get('side', []))
     model.SoupRecipes = pyo.Set(initialize=kind1_map.get('soup', []))
@@ -156,7 +156,7 @@ def build_model(
                 lower_limits[nut_name] = val
 
     # Decision variables: binary selection variables for each day and recipe and meal kind
-    model.stample = pyo.Var(model.Days, model.Recipes, domain=pyo.Binary)
+    model.staple = pyo.Var(model.Days, model.Recipes, domain=pyo.Binary)
     model.main = pyo.Var(model.Days, model.Recipes, domain=pyo.Binary)
     model.side = pyo.Var(model.Days, model.Recipes, domain=pyo.Binary)
     model.soup = pyo.Var(model.Days, model.Recipes, domain=pyo.Binary)
@@ -169,7 +169,7 @@ def build_model(
     def is_gohan_or_pasta(rid):
         return rid in model.GohanPastaRecipes
 
-    # Constraint: Each day must have one main dish, one soup, one side and one stample
+    # Constraint: Each day must have one main dish, one soup, one side and one staple
     def c_main_once_day(model,d):
         return sum(model.main[d,r] for r in model.MainRecipes) == 1
     model.MainOnce = pyo.Constraint(model.Days, rule=c_main_once_day)
@@ -179,35 +179,35 @@ def build_model(
     model.SoupOnce = pyo.Constraint(model.Days, rule=c_soup_once_day)
 
     def c_side_once_day(model,d):
-        # If stample is gohan/pasta, side is omitted (only 3 dishes)
-        supp_stample = sum(model.stample[d,r] for r in model.GohanPastaRecipes)
-        if supp_stample == 1:
+        # If staple is gohan/pasta, side is omitted (only 3 dishes)
+        supp_staple = sum(model.staple[d,r] for r in model.GohanPastaRecipes)
+        if supp_staple == 1:
             return sum(model.side[d,r] for r in model.SideRecipes) == 0
         else:
             return sum(model.side[d,r] for r in model.SideRecipes) == 1
     def side_once_day_rule(model,d):
-        gohan_pasta_selected = [r for r in model.GohanPastaRecipes if (d,r) in model.stample.index_set()]
-        count = sum(model.stample[d,r] for r in model.GohanPastaRecipes)
+        gohan_pasta_selected = [r for r in model.GohanPastaRecipes if (d,r) in model.staple.index_set()]
+        count = sum(model.staple[d,r] for r in model.GohanPastaRecipes)
         # Use constraint trick: side == 1 - gohan_pasta_selected
         return sum(model.side[d,r] for r in model.SideRecipes) == 1 - count
     model.SideOnce = pyo.Constraint(model.Days, rule=side_once_day_rule)
 
-    def c_stample_once_day(model,d):
-        return sum(model.stample[d,r] for r in model.StampleRecipes) == 1
-    model.StampleOnce = pyo.Constraint(model.Days, rule=c_stample_once_day)
+    def c_staple_once_day(model,d):
+        return sum(model.staple[d,r] for r in model.StapleRecipes) == 1
+    model.StapleOnce = pyo.Constraint(model.Days, rule=c_staple_once_day)
 
     # Constraint: Each recipe used at most once per week except 白米 (shirogome)
     rice_recipes = [r for r in model.Recipes if Recipes[r]['recipeTitle']=='白米']
     def c_recipe_once_week(model,r):
         if r in rice_recipes:
-            return sum(model.stample[d,r] + model.main[d,r] + model.side[d,r] + model.soup[d,r] for d in model.Days) <= 6
+            return sum(model.staple[d,r] + model.main[d,r] + model.side[d,r] + model.soup[d,r] for d in model.Days) <= 6
         else:
-            return sum(model.stample[d,r] + model.main[d,r] + model.side[d,r] + model.soup[d,r] for d in model.Days) <= 1
+            return sum(model.staple[d,r] + model.main[d,r] + model.side[d,r] + model.soup[d,r] for d in model.Days) <= 1
     model.RecipeOnceWeek = pyo.Constraint(model.Recipes, rule=c_recipe_once_week)
 
     # Link amount to selection variables: amount > 0 only if selected (binary)
     def c_amount_link(model,d,r):
-        return model.amount[d,r] <= 10000 * (model.stample[d,r] + model.main[d,r] + model.side[d,r] + model.soup[d,r])
+        return model.amount[d,r] <= 10000 * (model.staple[d,r] + model.main[d,r] + model.side[d,r] + model.soup[d,r])
     model.AmountLink = pyo.Constraint(model.Days, model.Recipes, rule=c_amount_link)
 
     # Restriction: For each item with weight multiples, amount must be multiple of weights

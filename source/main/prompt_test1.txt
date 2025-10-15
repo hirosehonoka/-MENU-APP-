@@ -25,7 +25,7 @@
 　・たんぱく質　＝　カロリー＊(たんぱく質_下orたんぱく質_上限)/400
 　・脂質　＝　カロリー＊(脂質_下限or脂質_上限)/900
 　・たんぱく質　＝　カロリー＊(炭水化物_下限or炭水化物_上限)/400
-・ソルバーでの献立作成の際、作成された献立は主食はstample、主菜はmain、汁物はsoup、副菜はsideという項目名で格納できるようにする
+・ソルバーでの献立作成の際、作成された献立は主食はstaple、主菜はmain、汁物はsoup、副菜はsideという項目名で格納できるようにする
 ・Recipe、RecipeItem、RecipeNutritionの主キーはrecipeId、NutritonalTargetの主キーはtargetId、ItemWeight、ItemEqualの主キーはitemNameとする
 ・しかし、userInfoのtargetIdフィールドは一見本質的な意味を持たないのでAPI生成コードではキーアクセスや利用を避けてください
 ・userInfo（ユーザー情報）はtargetIdを持たず、NutritionalTarget.userInfoを属性一致で検索する設計です
@@ -42,7 +42,7 @@ Pyomoへの出力
 　・domain=... は必ず1度だけ、バイナリ変数・連続変数など型だけ指定し、集合/リストはdomainに入れない。
 　・インデックス集合はpyo.Var(インデックス1, インデックス2, ..., domain=...)の形で指定。
 　・「主食/主菜/汁物/副菜」など区分を変数に格納する場合も、曜日×レシピの組み合わせ＋domain=pyo.Binary、としてください。
-　　（正例）model.stample = pyo.Var(model.Days, model.Recipes, domain=pyo.Binary)
+　　（正例）model.staple = pyo.Var(model.Days, model.Recipes, domain=pyo.Binary)
 ・このルールに合わないPyomoコード（domainの二重指定など）は出力しないでください。
 ・Pyomoの制約(rule)関数内でreturnする値は必ずPyomoの等式/不等式（例: sum(x[i] for i in S) == 1 など）にしてください。
 ・絶対に「return True」や「return False」だけを返してはいけません。単なるブール値は返さず、Pyomo式としての比較・等式を返してください。
