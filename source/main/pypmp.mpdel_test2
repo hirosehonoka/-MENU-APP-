@@ -1,0 +1,121 @@
+import pyomo.environ as pyo
+
+# Sample data initialization
+recipe_dict = {
+    'recipe1': {'kind1': 'staple', 'kind2': 'rice', 'nutritions': {'calories': 100, 'protein': 2, 'fat': 0.5, 'carbohydrates': 20}},
+    'recipe2': {'kind1': 'main', 'nutritions': {'calories': 200, 'protein': 10, 'fat': 5, 'carbohydrates': 10}},
+    'recipe3': {'kind1': 'soup', 'nutritions': {'calories': 50, 'protein': 1, 'fat': 0.5, 'carbohydrates': 10}},
+    'recipe4': {'kind1': 'side', 'nutritions': {'calories': 100, 'protein': 2, 'fat': 0.5, 'carbohydrates': 20}},
+}
+
+recipe_item_dict = {
+    'recipe1': {'carrot': 50, 'radish': 100},
+    'recipe2': {'carrot': 20, 'radish': 50},
+    'recipe3': {'carrot': 10, 'radish': 20},
+    'recipe4': {'carrot': 30, 'radish': 60},
+}
+
+nutritional_target = {
+    'calories': {'calories': 2000},
+    'protein': {'protein_lower': 50, 'protein_upper': 70},
+    'fat': {'fat_lower': 20, 'fat_upper': 30},
+    'carbohydrates': {'carbohydrates_lower': 200, 'carbohydrates_upper': 250},
+}
+
+item_weight = {
+    'carrot': {'weight': 1},
+    'radish': {'weight': 1},
+}
+
+item_equal = {
+    'carrot': {'equals': ['carrot', 'carrots']},
+    'radish': {'equals': ['radish', 'radishes']},
+}
+
+user_input = {
+    'ingredients': {'carrot': 50, 'radish': 100},
+}
+
+# Model definition
+model = pyo.ConcreteModel(name="MealPlanOptimization")
+
+# Sets
+model.Days = pyo.Set(initialize=['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
+model.Recipes = pyo.Set(initialize=recipe_dict.keys())
+model.Ingredients = pyo.Set(initialize=user_input['ingredients'].keys())
+
+# Variables
+model.staple = pyo.Var(model.Days, model.Recipes, domain=pyo.Binary)
+model.main = pyo.Var(model.Days, model.Recipes, domain=pyo.Binary)
+model.soup = pyo.Var(model.Days, model.Recipes, domain=pyo.Binary)
+model.side = pyo.Var(model.Days, model.Recipes, domain=pyo.Binary)
+
+# Objective function: Minimize the number of ingredients used
+def minimize_ingredients_rule(model):
+    return sum(sum(model.staple[d, r] + model.main[d, r] + model.soup[d, r] + model.side[d, r] for r in model.Recipes) for d in model.Days)
+
+model.objective = pyo.Objective(rule=minimize_ingredients_rule, sense=pyo.minimize)
+
+# Constraints
+# 1. Nutritional constraints
+def nutritional_constraints_rule(model, d):
+    total_calories = sum(sum(recipe_dict[r]['nutritions']['calories'] * (model.staple[d, r] + model.main[d, r] + model.soup[d, r] + model.side[d, r]) for r in model.Recipes) for d in model.Days)
+    total_protein = sum(sum(recipe_dict[r]['nutritions']['protein'] * (model.staple[d, r] + model.main[d, r] + model.soup[d, r] + model.side[d, r]) for r in model.Recipes) for d in model.Days)
+    total_fat = sum(sum(recipe_dict[r]['nutritions']['fat'] * (model.staple[d, r] + model.main[d, r] + model.soup[d, r] + model.side[d, r]) for r in model.Recipes) for d in model.Days)
+    total_carbohydrates = sum(sum(recipe_dict[r]['nutritions']['carbohydrates'] * (model.staple[d, r] + model.main[d, r] + model.soup[d, r] + model.side[d, r]) for r in model.Recipes) for d in model.Days)
+    
+    return pyo.inequality(nutritional_target['calories']['calories'] * 0.9, total_calories, nutritional_target['calories']['calories'] * 1.1), \
+           pyo.inequality(nutritional_target['protein']['protein_lower'], total_protein, nutritional_target['protein']['protein_upper']), \
+           pyo.inequality(nutritional_target['fat']['fat_lower'], total_fat, nutritional_target['fat']['fat_upper']), \
+           pyo.inequality(nutritional_target['carbohydrates']['carbohydrates_lower'], total_carbohydrates, nutritional_target['carbohydrates']['carbohydrates_upper'])
+
+model.nutritional_constraints = pyo.Constraint(model.Days, rule=nutritional_constraints_rule)
+
+# 2. Use all ingredients
+def use_all_ingredients_rule(model, i):
+    total_used = sum(sum(recipe_item_dict[r].get(i, 0) * (model.staple[d, r] + model.main[d, r] + model.soup[d, r] + model.side[d, r]) for r in model.Recipes) for d in model.Days)
+    return total_used == user_input['ingredients'][i]
+
+model.use_all_ingredients = pyo.Constraint(model.Ingredients, rule=use_all_ingredients_rule)
+# 3. Ingredient quantity must be a multiple of the weight
+def ingredient_quantity_multiple_rule(model, d, r, i):
+    if recipe_item_dict[r].get(i, 0) > 0:
+        return pyo.inequality(0, recipe_item_dict[r][i] * (model.staple[d, r] + model.main[d, r] + model.soup[d, r] + model.side[d, r]), item_weight[i]['weight'] * 1000)  # Assuming 1000 as an upper limit for simplicity
+    else:
+        return pyo.Constraint.Skip
+
+model.ingredient_quantity_multiple = pyo.Constraint(model.Days, model.Recipes, model.Ingredients, rule=ingredient_quantity_multiple_rule)
+
+# 4. Each recipe can only be used once per week
+def recipe_usage_limit_rule(model, r):
+    return sum(model.staple[d, r] + model.main[d, r] + model.soup[d, r] + model.side[d, r] for d in model.Days) <= 1
+
+model.recipe_usage_limit = pyo.Constraint(model.Recipes, rule=recipe_usage_limit_rule)
+
+# 5. Special case for "white rice"
+def white_rice_usage_limit_rule(model):
+    white_rice_recipe = 'recipe1'  # Assuming 'recipe1' is white rice
+    return sum(model.staple[d, white_rice_recipe] for d in model.Days) <= 6
+
+model.white_rice_usage_limit = pyo.Constraint(rule=white_rice_usage_limit_rule)
+
+# Solve the model
+solver = pyo.SolverFactory('cbc', executable='/path/to/cbc/executable')
+results = solver.solve(model)
+
+# Print results
+if str(results.solver.status) == 'ok' and str(results.solver.termination_condition) == 'optimal':
+    for d in model.Days:
+        print(f"Day: {d}")
+        for r in model.Recipes:
+            if model.staple[d, r].value > 0.5:
+                print(f"- Staple: {r}")
+            if model.main[d, r].value > 0.5:
+                print(f"- Main: {r}")
+            if model.soup[d, r].value > 0.5:
+                print(f"- Soup: {r}")
+            if model.side[d, r].value > 0.5:
+                print(f"- Side: {r}")
+else:
+    print("Solver did not find an optimal solution.")
+    print(f"Status: {results.solver.status}, Termination Condition: {results.solver.termination_condition}")

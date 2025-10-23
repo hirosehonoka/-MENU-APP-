@@ -4,19 +4,19 @@
 <div class="text-center my-5">
     <h2>新規登録</h2>
 </div>
-<div class="mx-5">
-    <form method="POST">
+<div class="container d-flex justify-content-center align-items-center" style="min-height: 50vh;">
+    <form method="POST" style="width: 600px;">
         <div class="mb-3">
             <label for='userName' class="form-label">ユーザ名</label>
-            <input type="text" class="form-control" name="userName" id="userName"><br>
+            <input type="text" class="form-control w-100" name="userName" id="userName"><br>
             <div class="form-text">20文字以内で入力してください。</div>
         </div>
         <div class="mb-3">
             <br><label for="password" class="form-label">パスワード</label>
-            <input type="password" class="form-control" name="password" id="password"><br>
+            <input type="password" class="form-control w-100" name="password" id="password"><br>
         </div>
 
-        <div class="ms-3">
+        <div class="mb-1">
             <label>年齢を選択してください</label>
             <div class="ms-5">
                 <div class="form-check form-check-inline">
@@ -33,7 +33,7 @@
             </div>
         </div>
 
-        <div class="ms-3">
+        <div class="mb-1">
             <br><label>性別を選択してください</label>
             <div class="ms-5">
                 <div class="form-check form-check-inline">
@@ -44,7 +44,7 @@
             </div>
         </div>
 
-        <div class="ms-3">
+        <div class="mb-1">
             <br><label>運動レベルを選択してください</label>
             <div class="ms-5">
                 <div class="form-check form-check-inline">
@@ -56,8 +56,8 @@
                 </div>
             </div>
         </div>
-        <div class="text-center my-5">
-            <button type="submit" class="btn btn-primary w-75">新規登録</button>
+        <div class="text-center mt-5">
+            <button type="submit" class="btn btn-info btn-lg w-25">新規登録</button>
         </div>
     </form>
 </div>

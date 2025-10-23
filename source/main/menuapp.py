@@ -1,4 +1,4 @@
-from flask import Flask,render_template,request,redirect,flash,url_for
+from flask import Flask,render_template,request,redirect,flash,url_for,session
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy import  cast, BigInteger,literal,select,union_all,Column,DateTime,func
@@ -52,10 +52,6 @@ ItemWeight = Base .classes .itemWeights
 NutritionalTarget = Base .classes.nutritionalTargets
 User = Base.classes.user
 
-with app.app_context():
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=db.engine)
-    session = SessionLocal()
-
 #現在のユーザを識別する
 @login_manager.user_loader
 def load_user(user_id):
@@ -67,12 +63,18 @@ def load_user(user_id):
 #プロンプト用テキストファイルを読み込む
 def data2str(data):
     return str(data)
-def generate_prompt(planning_data):
+
+def generate_prompt(planning_data,regist_item=None):
     base_dir = os.path.dirname(__file__)
-    prompt_file_path = os.path.join(base_dir, "prompt_test1.txt")
+    prompt_file_path = os.path.join(base_dir, "prompt_test2.txt")
+    #プランニングデータを埋め込む
     with open(prompt_file_path, encoding="utf-8") as f:
         prompt_template = f.read()
-    return prompt_template.format(problem_data=str(planning_data))
+    #登録する食材を埋め込む
+    prompt_ready = prompt_template.format(problem_data=str(planning_data))
+    if regist_item:
+        prompt_ready = prompt_ready.replace("{指定食材}", regist_item)
+    return prompt_ready
 
 #MarkDown削除用
 def extract_python_code(text):
@@ -113,13 +115,11 @@ def sanitize_pyomo_code(code):
 #日毎の献立
 def extract_day_menus_with_categories(model, recipe_list):
     day_menus = {}
-    # インデックスが range(1,8) などの場合はlist化してループ
     for d in list(model.Days):
         menu = {}
         for cat in ['staple', 'main', 'soup', 'side']:
             if hasattr(model, cat):
                 var = getattr(model, cat)
-                # 値が最大のレシピを抽出
                 selected_r = None
                 max_val = -float('inf')
                 for r in list(model.Recipes):
@@ -127,19 +127,13 @@ def extract_day_menus_with_categories(model, recipe_list):
                     if v is not None and v > max_val:
                         max_val = v
                         selected_r = r
-                if max_val >= 0.5:  # 0/1バイナリの場合。floatなら>=0.5で判定
-                    # rがIDならタイトル対応（recipe_list中からrを探す）
-                    recipe_title = None
-                    for rec in recipe_list:
-                        if rec.get('recipeId') == selected_r:
-                            recipe_title = rec.get('recipeTitle')
-                            break
-                    menu[cat] = {'id': selected_r, 'title': recipe_title}
+                # 0/1バイナリ判定（選ばれたレシピのみ記録）
+                if max_val >= 0.5:
+                    menu[cat] = selected_r  # recipeIdのみ格納
                 else:
-                    menu[cat] = None  # 未選択の場合
+                    menu[cat] = None
         day_menus[f"menu{d}"] = menu
     return day_menus
-
 
 class User(UserMixin,db.Model):
     userId = db.Column(db.Integer,primary_key=True)
@@ -319,6 +313,16 @@ def show_item():
 
     return render_template('item.html', ingredients=aggregated_ingredients, total_types=total_types, current_page='item', show_navbar=True)
 
+@app.route('/registitem', methods=['GET','POST'])
+@login_required
+def regist_item():
+    if request.method == 'POST':
+        regist_item = request.form.get('registItem')
+        session['regist_item'] = regist_item
+        return redirect('/createmenu')
+    elif request.method == 'GET':
+        return render_template('registitem.html',show_navbar=True)
+
 @app.route('/createmenu', methods=['GET','POST'])
 @login_required
 def create_menu():
@@ -373,10 +377,19 @@ def create_menu():
         "脂質_下限":"脂質(g)",
         "炭水化物_上限":"炭水化物(g)",
         "炭水化物_下限":"炭水化物(g)",
-        "食塩_上限"*"食塩(g)",
-        "食物繊維_下限"*"食物繊維(g)",
-        "カルシウム_上限"*"カルシウム(mg)",
-        "カルシウム_上限"*"カルシウム(mg)"
+        "食塩_上限":"食塩(g)",
+        "食物繊維_下限":"食物繊維(g)",
+        "カルシウム_上限":"カルシウム(mg)",
+        "カルシウム_上限":"カルシウム(mg)",
+        "ビタミンA_上限":"ビタミンA(μg)",
+        "ビタミンA_下限":"ビタミンA(μg)",
+        "ビタミンD_上限": "ビタミンD(μg)",
+        "ビタミンD_下限": "ビタミンD(μg)",
+        "ビタミンC_下限": "ビタミンC(mg)",
+        "ビタミンB1_下限":"ビタミンB₁(mg)",
+        "ビタミンB2_下限":"ビタミンB₂(mg)",
+        "鉄・月経時_下限":"鉄(mg)",
+        "鉄_下限":"鉄(mg)"
     }
 
     target_keys = list(nutrition_match.keys())
@@ -393,36 +406,41 @@ def create_menu():
         for r in db.session.query(RecipeNutrition).all()
     }
 
-    # # 4. プロンプト文生成
-    # # データのまとめ
-    # planning_data = {
-    #     "recipes": [r.data for r in recipes],
-    #     "nutritional_targets": filtered_nutritional,
-    #     "recipe_nutritions": filtered_recipe_nutritions,
-    #     "recipe_items": recipe_items,
-    #     "item_weights": item_weights,
-    #     "item_equals": item_equals,
-    # }
-    # solution_prompt = generate_prompt(planning_data)
+    # 4. プロンプト文生成
+    # データのまとめ
+    planning_data = {
+        "recipes": [r.data for r in recipes],
+        "nutritional_targets": filtered_nutritional,
+        "recipe_nutritions": filtered_recipe_nutritions,
+        "recipe_items": recipe_items,
+        "item_weights": item_weights,
+        "item_equals": item_equals,
+    }
+    regist_item = session.get('regist_item')
+    solution_prompt = generate_prompt(planning_data, regist_item)
+    print('プロンプト：')
+    print(solution_prompt)
+
+    optimization_input = client.chat.completions.create(
+        messages=[{"role": "user", "content": solution_prompt}],
+        model="sonar",
+        temperature=0.1
+    )
 
 
-    # optimization_input = client.chat.completions.create(
-    #     messages=[{"role": "user", "content": solution_prompt}],
-    #     model="sonar"
-    # )
 
+    # 6. Pyomo（+cbc）最適化
+    pyomo_code_str_raw = optimization_input.choices[0].message.content
+    pyomo_code_str = extract_python_code(pyomo_code_str_raw)
+    print('API出力内容:')
+    print(pyomo_code_str)
+    print('API出力完了')
 
-    # # 6. Pyomo（+cbc）最適化
-    # pyomo_code_str_raw = optimization_input.choices[0].message.content
-    # pyomo_code_str = extract_python_code(pyomo_code_str_raw)
-    # print('API出力内容2:')
-    # print(pyomo_code_str)
-
-    #API出力コードの読み込み(ソルバー周辺調整用)
-    base_dir = os.path.dirname(__file__)  # menuapp.pyのある場所
-    api_file_path = os.path.join(base_dir, "api_pyomo_model.py")
-    with open(api_file_path, encoding='utf-8') as f:
-        pyomo_code_str = f.read()
+    # #API出力コードの読み込み(ソルバー周辺調整用)
+    # base_dir = os.path.dirname(__file__)  # menuapp.pyのある場所
+    # api_file_path = os.path.join(base_dir, "api_pyomo_model.py")
+    # with open(api_file_path, encoding='utf-8') as f:
+    #     pyomo_code_str = f.read()
     
     pyomo_code_str = sanitize_pyomo_code(pyomo_code_str)
 
@@ -478,8 +496,6 @@ def create_menu():
         'ItemWeight': itemweight_dict,
         'ItemEqual': itemequal_dict,
         'RecipeItem': recipeitem_dict,
-        # 'RecipeNutrition': recipenutrition_dict,
-        # 'NutritionalTarget': nutritionaltarget_dict,
         'RecipeNutrition': filtered_recipe_nutritions,
         'NutritionalTarget': {
             0: {"nutritionals": filtered_nutritional, "userInfo": userInfo}
@@ -517,8 +533,6 @@ def create_menu():
         Days,
         recipe_dict,
         recipeitem_dict, 
-        # recipenutrition_dict,
-        # nutritionaltarget_dict,
         filtered_recipe_nutritions,  
         nutritionaltarget, 
         userInfo,
@@ -543,10 +557,15 @@ def create_menu():
         model.MealCompConstr.add(expr_soup == 1)
         model.MealCompConstr.add(expr_side == 1 - is_rice_or_pasta)
 
+    print('ソルバー準備完了')
+
     cbc_path = "/Users/hiruse/cbc/bin/cbc"
     solver = SolverFactory('cbc', executable=cbc_path)  # フルパスを指定
-    results = solver.solve(model)
-    day_menus = extract_day_menus_with_categories(model, recipe_dict)
+    solver.options['sec'] = 300          # 最大5分実行
+    solver.options['ratioGap'] = 0.02    # 2%以内で打ち切り
+    results = solver.solve(model,tee=True)
+    day_menus = extract_day_menus_with_categories(model,list(recipe_dict.values()))
+    print('献立作成完了')
 
     # 7. 曜日ごとのMenuレコード保存
     menu_obj = Menu(
@@ -566,28 +585,28 @@ def create_menu():
 
     return redirect(url_for('show_menus', menuId=menu_obj.menuId))
 
-@app.route("/nutritional")
-@login_required
-def show_nutritional():
-    menu = db.session.query(Menu).filter_by(userName=current_user.userName).first()
-    if menu is None:
-        return render_template("nutritional.html",  current_page='nutritional', show_navbar=True)
+# @app.route("/nutritional")
+# @login_required
+# def show_nutritional():
+#     menu = db.session.query(Menu).filter_by(userName=current_user.userName).first()
+#     if menu is None:
+#         return render_template("nutritional.html",  current_page='nutritional', show_navbar=True)
 
-    # menu1〜menu7のすべてのrecipeIdを取得（中身が例えば {staple:123, main:456} のような構造を想定）
-    recipe_ids = []
-    for menu_col in ['menu1', 'menu2', 'menu3', 'menu4', 'menu5', 'menu6', 'menu7']:
-        menu_json = getattr(menu, menu_col, {})
-        for meal_type in ['staple', 'main', 'side', 'soup']:
-            val = menu_json.get(meal_type)
-            if val is None:
-                continue
-            try:
-                recipe_id = int(val) if not hasattr(val, 'astext') else int(val.astext)
-            except (ValueError, TypeError):
-                continue
-            recipe_ids.append(recipe_id)
+#     # menu1〜menu7のすべてのrecipeIdを取得（中身が例えば {staple:123, main:456} のような構造を想定）
+#     recipe_ids = []
+#     for menu_col in ['menu1', 'menu2', 'menu3', 'menu4', 'menu5', 'menu6', 'menu7']:
+#         menu_json = getattr(menu, menu_col, {})
+#         for meal_type in ['staple', 'main', 'side', 'soup']:
+#             val = menu_json.get(meal_type)
+#             if val is None:
+#                 continue
+#             try:
+#                 recipe_id = int(val) if not hasattr(val, 'astext') else int(val.astext)
+#             except (ValueError, TypeError):
+#                 continue
+#             recipe_ids.append(recipe_id)
 
-    recipe_ids = list(set(recipe_ids))
+#     recipe_ids = list(set(recipe_ids))
 
 @app.route("/signup",methods=['GET','POST'])
 def signup():
@@ -646,7 +665,7 @@ def login():
             login_user(wrapped_user)
             return redirect('/menu')
         else:
-            flash('ユーザ名かパスワードが違います。')
+            flash('ユーザ名かパスワードが違います')
             return redirect(url_for('login'))
     elif request.method == 'GET':
         return render_template('login.html', show_navbar=False)

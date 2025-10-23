@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}食材登録{% endblock %}
+{% block content %}
+
+<div class="text-center mt-5 mb-3">
+    <h2>家にある食材の登録</h2>
+</div>
+<div class="container d-flex justify-content-center align-items-center" style="min-height: 50vh;">
+    <form method="POST" style="width: 600px;">
+        <div class="mb-3">
+            <label for='registItem' class="form-label">食材と量(g)</label>
+            <textarea type="text" class="form-control w-100" name="registItem" id="registItem" rows="6" placeholder="記入例）人参：５０g、大根：１００g"></textarea><br>
+        </div>
+        <div class="text-center mt-5">
+            <button type="submit" class="btn btn-primary btn-lg w-50">登録</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
