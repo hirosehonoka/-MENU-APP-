@@ -15,13 +15,16 @@
             {% block navbar %}
             <ul class="nav nav-underline mx-3">
                 <li class="nav-item">
-                <a class="nav-link text-dark {% if current_page == 'menu' %}active{% endif %}" href="/menu">献立一覧</a>
+                    <a class="nav-link text-dark {% if current_page == 'menu' %}active{% endif %}" href="/menu">献立一覧</a>
                 </li>
                 <li class="nav-item">
-                <a class="nav-link text-dark {% if current_page == 'item' %}active{% endif %}" href="/item">食材一覧</a>
+                    <a class="nav-link text-dark {% if current_page == 'item' %}active{% endif %}" href="/item">食材一覧</a>
                 </li>
                 <li class="nav-item">
-                <a class="nav-link text-dark {% if current_page == 'userupdate' %}active{% endif %}" href="/userupdate">ユーザ情報の更新</a>
+                    <a class="nav-link text-dark {% if current_page == 'registitem' %}active{% endif %}" href="/registitem">献立作成</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link text-dark {% if current_page == 'userupdate' %}active{% endif %}" href="/userupdate">ユーザ情報の更新</a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link text-dark" href="/logout">ログアウト</a>

@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import sessionmaker
 from flask_login import UserMixin,LoginManager,login_user,login_required,logout_user,current_user
 from werkzeug.security import generate_password_hash,check_password_hash
-import os,json,requests,re
+import os,json,requests,re,traceback
 from collections import defaultdict
 from dotenv import load_dotenv
 from perplexity import Perplexity
@@ -64,16 +64,15 @@ def load_user(user_id):
 def data2str(data):
     return str(data)
 
-def generate_prompt(planning_data,regist_item=None):
+def generate_prompt(planning_data):
     base_dir = os.path.dirname(__file__)
-    prompt_file_path = os.path.join(base_dir, "prompt_test2.txt")
-    #プランニングデータを埋め込む
+    prompt_file_path = os.path.join(base_dir, "prompt_test3.txt")
     with open(prompt_file_path, encoding="utf-8") as f:
         prompt_template = f.read()
-    #登録する食材を埋め込む
-    prompt_ready = prompt_template.format(problem_data=str(planning_data))
-    if regist_item:
-        prompt_ready = prompt_ready.replace("{指定食材}", regist_item)
+    # planning_dataをJSON化（整形・読みやすく）
+    planning_json = json.dumps(planning_data, ensure_ascii=False, indent=2)
+    # プレースホルダに安全に挿入
+    prompt_ready = prompt_template.format(problem_data=planning_json)
     return prompt_ready
 
 #MarkDown削除用
@@ -313,277 +312,301 @@ def show_item():
 
     return render_template('item.html', ingredients=aggregated_ingredients, total_types=total_types, current_page='item', show_navbar=True)
 
-@app.route('/registitem', methods=['GET','POST'])
+@app.route('/registitem', methods=['GET'])
 @login_required
 def regist_item():
-    if request.method == 'POST':
-        regist_item = request.form.get('registItem')
-        session['regist_item'] = regist_item
-        return redirect('/createmenu')
-    elif request.method == 'GET':
-        return render_template('registitem.html',show_navbar=True)
+    return render_template('registitem.html',current_page='registitem',show_navbar=True)
 
 @app.route('/createmenu', methods=['GET','POST'])
 @login_required
 def create_menu():
-    # 0. ログインユーザが以前取得した献立を削除
-    menu = db.session.query(Menu).filter_by(userName=current_user.userName).first()
-    if menu is not None:
-        db.session.delete(menu)
-        db.session.commit
+    if request.method == 'POST':
+        # リクエストデータを受け取る
+        regist_item = request.json if request.json else {}
 
-    # 1. ログインユーザ情報取得とユーザの以前の献立削除
-    user = db.session.query(User).filter_by(userName=current_user.userName).first()
-    if not user or not user.userInfo:
-        flash("ユーザーターゲットが登録されていません")
-        return redirect(url_for('index'))
-    user_userInfo = user.userInfo # jsonb型。Pythonではdict想定
-    
-    # 2. NutritionalTargetからマッチングレコード探索
-    # 年齢、性別、運動レベル
-    userInfo_conditions = user_userInfo.copy()
-    age = userInfo_conditions.get('年齢', None)
-    gender = userInfo_conditions.get('性別', None)
-    activity = userInfo_conditions.get('運動レベル', None)
+        # 0. ログインユーザが以前取得した献立を削除
+        menu = db.session.query(Menu).filter_by(userName=current_user.userName).first()
+        if menu is not None:
+            db.session.delete(menu)
+            db.session.commit
 
-    # 「75歳以上」かつ「運動レベル 高い」なら運動レベルを「ふつう」に
-    activity_query = activity
-    if age and ('75' in age and activity == '高い'):
-        activity_query = 'ふつう'
+        # 1. ログインユーザ情報取得とユーザの以前の献立削除
+        user = db.session.query(User).filter_by(userName=current_user.userName).first()
+        if not user or not user.userInfo:
+            flash("ユーザーターゲットが登録されていません")
+            return redirect(url_for('index'))
+        user_userInfo = user.userInfo # jsonb型。Pythonではdict想定
+        
+        # 2. NutritionalTargetからマッチングレコード探索
+        # 年齢、性別、運動レベル
+        userInfo_conditions = user_userInfo.copy()
+        age = userInfo_conditions.get('年齢', None)
+        gender = userInfo_conditions.get('性別', None)
+        activity = userInfo_conditions.get('運動レベル', None)
 
-    # SQLAlchemyによるjsonbフィールド完全一致 AND 年齢・性別・運動レベル条件
-    nt = db.session.query(NutritionalTarget).filter(
-        NutritionalTarget.userInfo['年齢'].astext == str(age),
-        NutritionalTarget.userInfo['性別'].astext == str(gender),
-        NutritionalTarget.userInfo['運動レベル'].astext == str(activity_query)
-    ).first()
-    if nt is None:
-        flash("栄養ターゲットが見つかりません")
-        return redirect(url_for('index'))
-    nutritional = nt.nutritionals
+        # 「75歳以上」かつ「運動レベル 高い」なら運動レベルを「ふつう」に
+        activity_query = activity
+        if age and ('75' in age and activity == '高い'):
+            activity_query = 'ふつう'
 
-    # 3. レシピ・食材・関連データ一式をIDごとにまとめて取得
-    recipes = db.session.query(Recipe).all()
-    recipe_nutritions = {r.recipeId: r.nutritions for r in db.session.query(RecipeNutrition).all()}
-    recipe_items = {ri.recipeId: ri.items for ri in db.session.query(RecipeItem).all()}
-    item_weights = {iw.itemName: iw.weights for iw in db.session.query(ItemWeight).all()}
-    item_equals = {ie.itemName: ie.equals for ie in db.session.query(ItemEqual).all()}
+        # SQLAlchemyによるjsonbフィールド完全一致 AND 年齢・性別・運動レベル条件
+        nt = db.session.query(NutritionalTarget).filter(
+            NutritionalTarget.userInfo['年齢'].astext == str(age),
+            NutritionalTarget.userInfo['性別'].astext == str(gender),
+            NutritionalTarget.userInfo['運動レベル'].astext == str(activity_query)
+        ).first()
+        if nt is None:
+            flash("栄養ターゲットが見つかりません")
+            return redirect(url_for('index'))
+        nutritional = nt.nutritionals
 
-    nutrition_match = {
-        "カロリー":"カロリー(kcal)",
-        "たんぱく質_上限":"たんぱく質(g)",
-        "たんぱく質_下限":"たんぱく質(g)",
-        "脂質_上限":"脂質(g)",
-        "脂質_下限":"脂質(g)",
-        "炭水化物_上限":"炭水化物(g)",
-        "炭水化物_下限":"炭水化物(g)",
-        "食塩_上限":"食塩(g)",
-        "食物繊維_下限":"食物繊維(g)",
-        "カルシウム_上限":"カルシウム(mg)",
-        "カルシウム_上限":"カルシウム(mg)",
-        "ビタミンA_上限":"ビタミンA(μg)",
-        "ビタミンA_下限":"ビタミンA(μg)",
-        "ビタミンD_上限": "ビタミンD(μg)",
-        "ビタミンD_下限": "ビタミンD(μg)",
-        "ビタミンC_下限": "ビタミンC(mg)",
-        "ビタミンB1_下限":"ビタミンB₁(mg)",
-        "ビタミンB2_下限":"ビタミンB₂(mg)",
-        "鉄・月経時_下限":"鉄(mg)",
-        "鉄_下限":"鉄(mg)"
-    }
+        # 3. レシピ・食材・関連データ一式をIDごとにまとめて取得
+        recipes = db.session.query(Recipe).all()
+        recipe_nutritions = {r.recipeId: r.nutritions for r in db.session.query(RecipeNutrition).all()}
+        recipe_items = {ri.recipeId: ri.items for ri in db.session.query(RecipeItem).all()}
+        item_weights = {iw.itemName: iw.weights for iw in db.session.query(ItemWeight).all()}
+        item_equals = {ie.itemName: ie.equals for ie in db.session.query(ItemEqual).all()}
 
-    target_keys = list(nutrition_match.keys())
-
-    filtered_nutritional = {
-        nutrition_match[k]: v
-        for k, v in nt.nutritionals.items()
-        if k in nutrition_match and nutrition_match[k] is not None
-    }
-
-    nutri_keys = list(filtered_nutritional.keys())
-    filtered_recipe_nutritions = {
-        r.recipeId: {k: v for k, v in r.nutritions.items() if k in nutri_keys}
-        for r in db.session.query(RecipeNutrition).all()
-    }
-
-    # 4. プロンプト文生成
-    # データのまとめ
-    planning_data = {
-        "recipes": [r.data for r in recipes],
-        "nutritional_targets": filtered_nutritional,
-        "recipe_nutritions": filtered_recipe_nutritions,
-        "recipe_items": recipe_items,
-        "item_weights": item_weights,
-        "item_equals": item_equals,
-    }
-    regist_item = session.get('regist_item')
-    solution_prompt = generate_prompt(planning_data, regist_item)
-    print('プロンプト：')
-    print(solution_prompt)
-
-    optimization_input = client.chat.completions.create(
-        messages=[{"role": "user", "content": solution_prompt}],
-        model="sonar",
-        temperature=0.1
-    )
-
-
-
-    # 6. Pyomo（+cbc）最適化
-    pyomo_code_str_raw = optimization_input.choices[0].message.content
-    pyomo_code_str = extract_python_code(pyomo_code_str_raw)
-    print('API出力内容:')
-    print(pyomo_code_str)
-    print('API出力完了')
-
-    # #API出力コードの読み込み(ソルバー周辺調整用)
-    # base_dir = os.path.dirname(__file__)  # menuapp.pyのある場所
-    # api_file_path = os.path.join(base_dir, "api_pyomo_model.py")
-    # with open(api_file_path, encoding='utf-8') as f:
-    #     pyomo_code_str = f.read()
-    
-    pyomo_code_str = sanitize_pyomo_code(pyomo_code_str)
-
-    kind1_map_jp_to_en = {'主菜': 'main', '副菜': 'side', '主食': 'staple', '汁物': 'soup'}
-
-    # SQLAlchemyからリストやディクショナリでデータ取得
-    recipe_dict = {}
-    for r in db.session.query(Recipe).all():
-        d = as_dict(r)
-        data = d.get('data', {})
-        jp_kind1 = data.get('kind1', '')
-        d['kind1'] = kind1_map_jp_to_en.get(jp_kind1, jp_kind1.strip().lower())
-        d['kind2'] = data.get('kind2', '')
-        d['kind3'] = data.get('kind3', '')
-        d['recipeTitle'] = data.get('recipeTitle', '')
-        recipe_dict[r.recipeId] = d
-    itemweight_dict = {}
-    for iw in db.session.query(ItemWeight).all():
-        d = as_dict(iw)  # itemName, weights しか存在しない場合
-        # "weights"を必ずリスト化
-        if not isinstance(d.get('weights'), list):
-            d['weights'] = [d['weights']] if d.get('weights') is not None else []
-        # "kind1"がない場合は空文字で補完
-        d['kind1'] = ''
-        itemweight_dict[d['itemName']] = d
-    itemequal_dict = {ie.itemName: as_dict(ie) for ie in db.session.query(ItemEqual).all()}
-    recipeitem_dict = {}
-    recipeitem_list = [as_dict(ri) for ri in db.session.query(RecipeItem).all()]
-    for rec in recipeitem_list:
-        rid = rec['recipeId']
-        items = rec.get('items', {})  # itemsカラムが空のときも考慮
-        for item, qty in items.items():
-            # Noneなら0に変換
-            recipeitem_dict[(rid, item)] = 0 if qty is None else qty
-    recipenutrition_dict = {rn.recipeId: as_dict(rn) for rn in db.session.query(RecipeNutrition).all()}
-    nutritionaltarget_dict = wrap_nutritional_target(nt)
-    for nt_id, nt_val in nutritionaltarget_dict.items():
-        if 'nutritionals' in nt_val:
-            for nut, val in nt_val['nutritionals'].items():
-                if val is None:
-                    nt_val['nutritionals'][nut] = 0
-    user = db.session.query(User).filter_by(userName=current_user.userName).first()
-    userInfo = user.userInfo
-
-    for v in recipe_dict.values():
-        if 'kind1' not in v:
-            v['kind1'] = ''
-        if 'kind2' not in v:
-            v['kind2'] = ''
-
-    scope = {
-        'Recipe': recipe_dict,
-        'ItemWeight': itemweight_dict,
-        'ItemEqual': itemequal_dict,
-        'RecipeItem': recipeitem_dict,
-        'RecipeNutrition': filtered_recipe_nutritions,
-        'NutritionalTarget': {
-            0: {"nutritionals": filtered_nutritional, "userInfo": userInfo}
-        },
-        'userInfo': userInfo
-    }
-
-    exec(pyomo_code_str, scope)
-    build_model = scope['build_model']
-
-    Days = list(range(1,8)) 
-    Recipes = list(recipe_dict.keys())
-
-    main_recipes = [rid for rid, v in recipe_dict.items() if v['kind1'] == 'main']
-    side_recipes = [rid for rid, v in recipe_dict.items() if v['kind1'] == 'side']
-    staple_recipes = [rid for rid, v in recipe_dict.items() if v['kind1'] == 'staple']
-    soup_recipes = [rid for rid, v in recipe_dict.items() if v['kind1'] == 'soup']
-    nutritionaltarget = {
-        0: {
-            "nutritionals": filtered_nutritional,
-            "userInfo": userInfo
+        nutrition_match = {
+            "カロリー":"カロリー(kcal)",
+            "たんぱく質_上限":"たんぱく質(g)",
+            "たんぱく質_下限":"たんぱく質(g)",
+            "脂質_上限":"脂質(g)",
+            "脂質_下限":"脂質(g)",
+            "炭水化物_上限":"炭水化物(g)",
+            "炭水化物_下限":"炭水化物(g)",
+            "食塩_上限":"食塩(g)",
+            "食物繊維_下限":"食物繊維(g)",
+            "カルシウム_上限":"カルシウム(mg)",
+            "カルシウム_上限":"カルシウム(mg)",
+            "ビタミンA_上限":"ビタミンA(μg)",
+            "ビタミンA_下限":"ビタミンA(μg)",
+            "ビタミンD_上限": "ビタミンD(μg)",
+            "ビタミンD_下限": "ビタミンD(μg)",
+            "ビタミンC_下限": "ビタミンC(mg)",
+            "ビタミンB1_下限":"ビタミンB₁(mg)",
+            "ビタミンB2_下限":"ビタミンB₂(mg)",
+            "鉄・月経時_下限":"鉄(mg)",
+            "鉄_下限":"鉄(mg)"
         }
-    }
 
-    if not main_recipes:
-        raise ValueError("主菜カテゴリーのレシピが1件もありません。最低1件必要です。")
-    if not side_recipes:
-        raise ValueError("副菜カテゴリーのレシピが1件もありません。最低1件必要です。")
-    if not staple_recipes:
-        raise ValueError("主食カテゴリーのレシピが1件もありません。最低1件必要です。")
-    if not soup_recipes:
-        raise ValueError("汁物カテゴリーのレシピが1件もありません。最低1件必要です。")
+        target_keys = list(nutrition_match.keys())
 
-    model = build_model(
-        Days,
-        recipe_dict,
-        recipeitem_dict, 
-        filtered_recipe_nutritions,  
-        nutritionaltarget, 
-        userInfo,
-        itemweight_dict, 
-        itemequal_dict
-    )
+        filtered_nutritional = {
+            nutrition_match[k]: v
+            for k, v in nt.nutritionals.items()
+            if k in nutrition_match and nutrition_match[k] is not None
+        }
 
-    RiceOrPastaSet = [r for r in model.Recipes if recipe_dict[r]['kind2'] in ['ご飯もの', 'パスタ']]
+        nutri_keys = list(filtered_nutritional.keys())
+        filtered_recipe_nutritions = {
+            r.recipeId: {'nutritions': {k: v for k, v in r.nutritions.items() if k in nutri_keys}}
+            for r in db.session.query(RecipeNutrition).all()
+        }
 
-    model.MealCompConstr = pyo.ConstraintList()
-    model.RiceOrPastaSet = pyo.Set(initialize=[r for r in model.Recipes if recipe_dict[r]['kind2'] in ['ご飯もの', 'パスタ']])
-    model.Nutrients = nutri_keys
+        kind1_map_jp_to_en = {'主菜': 'main', '副菜': 'side', '主食': 'staple', '汁物': 'soup'}
 
-    for d in model.Days:
-        expr_staple = sum(model.staple[d, r] for r in model.Recipes)
-        expr_main = sum(model.main[d, r] for r in model.Recipes)
-        expr_soup = sum(model.soup[d, r] for r in model.Recipes)
-        expr_side = sum(model.side[d, r] for r in model.Recipes)
-        is_rice_or_pasta = sum(model.staple[d, r] for r in RiceOrPastaSet)
-        model.MealCompConstr.add(expr_staple == 1)
-        model.MealCompConstr.add(expr_main == 1)
-        model.MealCompConstr.add(expr_soup == 1)
-        model.MealCompConstr.add(expr_side == 1 - is_rice_or_pasta)
+        # SQLAlchemyからリストやディクショナリでデータ取得
+        recipe_dict = {}
+        for r in db.session.query(Recipe).all():
+            d = as_dict(r)
+            data = d.get('data', {})
+            jp_kind1 = data.get('kind1', '')
+            d['kind1'] = kind1_map_jp_to_en.get(jp_kind1, jp_kind1.strip().lower())
+            d['kind2'] = data.get('kind2', '')
+            d['kind3'] = data.get('kind3', '')
+            d['recipeTitle'] = data.get('recipeTitle', '')
+            recipe_dict[r.recipeId] = d
+        itemweight_dict = {}
+        for iw in db.session.query(ItemWeight).all():
+            d = as_dict(iw)  # itemName, weights しか存在しない場合
+            # "weights"を必ずリスト化
+            if not isinstance(d.get('weights'), list):
+                d['weights'] = [d['weights']] if d.get('weights') is not None else []
+            # "kind1"がない場合は空文字で補完
+            d['kind1'] = ''
+            itemweight_dict[d['itemName']] = d
+        itemequal_dict = {ie.itemName: as_dict(ie) for ie in db.session.query(ItemEqual).all()}
+        recipeitem_dict = {}
+        recipeitem_list = [as_dict(ri) for ri in db.session.query(RecipeItem).all()]
+        for rec in recipeitem_list:
+            rid = rec['recipeId']
+            items = rec.get('items', {})
+            items_fixed = {k: (v if v is not None else 0) for k, v in items.items()}  # ←qtyそのまま
+            recipeitem_dict[rid] = items_fixed
+        recipeitem_used_dict = {}
+        for rid, items in recipeitem_dict.items():
+            recipeitem_used_dict[rid] = {k: 1 if v > 0 else 0 for k, v in items.items()}
+        recipenutrition_dict = {rn.recipeId: as_dict(rn) for rn in db.session.query(RecipeNutrition).all()}
+        nutritionaltarget_dict = wrap_nutritional_target(nt)
+        for nt_id, nt_val in nutritionaltarget_dict.items():
+            if 'nutritionals' in nt_val:
+                for nut, val in nt_val['nutritionals'].items():
+                    if val is None:
+                        nt_val['nutritionals'][nut] = 0
+        user = db.session.query(User).filter_by(userName=current_user.userName).first()
+        user_info = user.userInfo
 
-    print('ソルバー準備完了')
+        for v in recipe_dict.values():
+            if 'kind1' not in v:
+                v['kind1'] = ''
+            if 'kind2' not in v:
+                v['kind2'] = ''
 
-    cbc_path = "/Users/hiruse/cbc/bin/cbc"
-    solver = SolverFactory('cbc', executable=cbc_path)  # フルパスを指定
-    solver.options['sec'] = 300          # 最大5分実行
-    solver.options['ratioGap'] = 0.02    # 2%以内で打ち切り
-    results = solver.solve(model,tee=True)
-    day_menus = extract_day_menus_with_categories(model,list(recipe_dict.values()))
-    print('献立作成完了')
+        days = list(range(1,8)) 
+        recipe_ids = list(recipe_dict.keys())
 
-    # 7. 曜日ごとのMenuレコード保存
-    menu_obj = Menu(
-        userName=current_user.userName,
-        menu1=day_menus.get('menu1', {}),   
-        menu2=day_menus.get('menu2', {}),
-        menu3=day_menus.get('menu3', {}),
-        menu4=day_menus.get('menu4', {}),
-        menu5=day_menus.get('menu5', {}),
-        menu6=day_menus.get('menu6', {}),
-        menu7=day_menus.get('menu7', {}),
-        createdAt=datetime.now()
-    )
-    db.session.add(menu_obj)
-    db.session.commit()
-    print('menucreate終了')
+        main_recipes = [rid for rid, v in recipe_dict.items() if v['kind1'] == 'main']
+        side_recipes = [rid for rid, v in recipe_dict.items() if v['kind1'] == 'side']
+        staple_recipes = [rid for rid, v in recipe_dict.items() if v['kind1'] == 'staple']
+        soup_recipes = [rid for rid, v in recipe_dict.items() if v['kind1'] == 'soup']
+        nutritionaltarget = {
+            0: {
+                "nutritionals": filtered_nutritional,
+                "user_info": user_info
+            }
+        }
 
-    return redirect(url_for('show_menus', menuId=menu_obj.menuId))
+        # # 4. プロンプト文生成
+        # # データのまとめ
+        # planning_data = {
+        #     "days": days,                                    # 例: list(range(1,8))
+        #     "recipe_ids": recipe_ids,                           # レシピIDのリスト
+        #     "recipeitem_dict": recipeitem_dict,              # {recipe_id: {item_name: qty}, ...}
+        #     "filtered_recipe_nutritions": filtered_recipe_nutritions,  # {recipe_id: {nutrient_name: value}, ...}
+        #     "nutritionaltarget_dict": nutritionaltarget_dict,    # {ターゲットID: ...}
+        #     "itemweight_dict": itemweight_dict,              # {item_name: weights}
+        #     "itemequal_dict": itemequal_dict,                # {item_name: equals_list}
+        #     "user_info": user_info,
+        #     "regist_item": regist_item,
+        #     "recipeitem_used_dict": recipeitem_used_dict 
+        # }
+        # regist_item = session.get('regist_item')
+        # solution_prompt = generate_prompt(planning_data)
+        # print('プロンプト：')
+        # print(solution_prompt)
+
+        # optimization_input = client.chat.completions.create(
+        #     messages=[{"role": "user", "content": solution_prompt}],
+        #     model="sonar",
+        #     temperature=0.1
+        # )
+
+        # # 6. Pyomo（+cbc）最適化
+        # pyomo_code_str_raw = optimization_input.choices[0].message.content
+        # pyomo_code_str = extract_python_code(pyomo_code_str_raw)
+        # print('API出力内容:')
+        # print(pyomo_code_str)
+        # print('API出力完了')
+
+        #API出力コードの読み込み(ソルバー周辺調整用)
+        base_dir = os.path.dirname(__file__)  # menuapp.pyのある場所
+        api_file_path = os.path.join(base_dir, "api_pyomo_model3.py")
+        with open(api_file_path, encoding='utf-8') as f:
+            pyomo_code_str = f.read()
+        
+        pyomo_code_str = sanitize_pyomo_code(pyomo_code_str)
+
+        scope = {
+            'days': days,                                    # list(range(1,8)) 等
+            'recipe_ids': recipe_ids,             # レシピIDリスト
+            'recipeitem_dict': recipeitem_dict,                   # {rid: {item: qty}}
+            'filtered_recipe_nutritions': filtered_recipe_nutritions,   # {rid: {nutrient: value}}
+            'nutritionaltarget_dict': nutritionaltarget_dict,     # {ターゲットID: {...}}等
+            'itemweight_dict': itemweight_dict,                   # {item: weights}
+            'itemequal_dict': itemequal_dict,                     # {item: equals}
+            'user_info': user_info,                            # dict
+            'regist_item': regist_item,                      # dict or None
+            ' recipeitem_used_dict ': recipeitem_used_dict           # dict or None
+        }
+
+        exec(pyomo_code_str, scope, scope)
+        build_model = scope.get('build_model')
+
+        if not main_recipes:
+            raise ValueError("主菜カテゴリーのレシピが1件もありません。最低1件必要です。")
+        if not side_recipes:
+            raise ValueError("副菜カテゴリーのレシピが1件もありません。最低1件必要です。")
+        if not staple_recipes:
+            raise ValueError("主食カテゴリーのレシピが1件もありません。最低1件必要です。")
+        if not soup_recipes:
+            raise ValueError("汁物カテゴリーのレシピが1件もありません。最低1件必要です。")
+
+        model = build_model(
+            days,
+            recipe_ids,
+            recipeitem_dict, 
+            filtered_recipe_nutritions,  
+            nutritionaltarget_dict, 
+            user_info,
+            itemweight_dict, 
+            itemequal_dict,
+            regist_item,
+            recipeitem_used_dict
+        )
+
+        RiceOrPastaSet = [r for r in model.Recipes if recipe_dict[r]['kind2'] in ['ご飯もの', 'パスタ']]
+
+        model.MealCompConstr = pyo.ConstraintList()
+        model.RiceOrPastaSet = pyo.Set(initialize=[r for r in model.Recipes if recipe_dict[r]['kind2'] in ['ご飯もの', 'パスタ']])
+        model.Nutrients = nutri_keys
+
+        # --- 必須材料制約を「必要な場合のみ」追加 ---
+        if regist_item:  # ユーザ入力が空dict/Noneなら何も追加しない
+            def regist_item_constraint_rule(model, item):
+                total_used = sum(
+                    model.weight[d, r] * RecipeItem.get((r, item), 0)
+                    for d in model.days
+                    for r in model.Recipes
+                )
+                required = regist_item.get(item, None)
+                if required is None or required == "":
+                    return pyo.Constraint.Skip
+                return total_used >= required
+            
+            model.RequiredItemConstr = pyo.Constraint(
+                list(regist_item.keys()),
+                rule=regist_item_constraint_rule
+            )
+
+        for d in model.days:
+            expr_staple = sum(model.staple[d, r] for r in model.Recipes)
+            expr_main = sum(model.main[d, r] for r in model.Recipes)
+            expr_soup = sum(model.soup[d, r] for r in model.Recipes)
+            expr_side = sum(model.side[d, r] for r in model.Recipes)
+            is_rice_or_pasta = sum(model.staple[d, r] for r in RiceOrPastaSet)
+            model.MealCompConstr.add(expr_staple == 1)
+            model.MealCompConstr.add(expr_main == 1)
+            model.MealCompConstr.add(expr_soup == 1)
+            model.MealCompConstr.add(expr_side == 1 - is_rice_or_pasta)
+
+        print('ソルバー準備完了')
+
+        cbc_path = "/Users/hiruse/cbc/bin/cbc"
+        solver = SolverFactory('cbc', executable=cbc_path)  # フルパスを指定
+        solver.options['sec'] = 300          # 最大5分実行
+        solver.options['ratioGap'] = 0.02    # 2%以内で打ち切り
+        results = solver.solve(model,tee=True)
+        day_menus = extract_day_menus_with_categories(model,list(recipe_dict.values()))
+        print('献立作成完了')
+
+        # 7. 曜日ごとのMenuレコード保存
+        menu_obj = Menu(
+            userName=current_user.userName,
+            menu1=day_menus.get('menu1', {}),   
+            menu2=day_menus.get('menu2', {}),
+            menu3=day_menus.get('menu3', {}),
+            menu4=day_menus.get('menu4', {}),
+            menu5=day_menus.get('menu5', {}),
+            menu6=day_menus.get('menu6', {}),
+            menu7=day_menus.get('menu7', {}),
+            createdAt=datetime.now()
+        )
+        db.session.add(menu_obj)
+        db.session.commit()
+        print('menucreate終了')
+
+        return redirect(url_for('show_menus', menuId=menu_obj.menuId))
 
 # @app.route("/nutritional")
 # @login_required

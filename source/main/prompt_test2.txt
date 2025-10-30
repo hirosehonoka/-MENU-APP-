@@ -45,11 +45,7 @@ Pyomoへの出力
 ・出力形式
 　Pyomoでそのままコピー実行できる純粋なPythonコードのみを生成すること。
 　Markdown記法・コメント・日本語や説明文は一切含めない。
-・変数定義（Var）
-　・domain=は型（例:  pyo.Binary、 pyo.NonNegativeReals など）だけを1回指定する。
-　・インデックスセットは pyo.Var(集合1, 集合2, ..., domain=...) の形式で指定する。
-　・主食・主菜・汁物・副菜など変数もの (曜日 × レシピ) 組で定義する。
-　　例：model.staple = pyo.Var(model.Days, model.Recipes, domain=pyo.Binary)
+　関数定義形式で出力すること。
 ・定義（制約）
 　・ルール関数では return 値をPyomo式の等式または決意する。
 　　例：return sum(x[i] for i in S) == 1
