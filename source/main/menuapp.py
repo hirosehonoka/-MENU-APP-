@@ -29,13 +29,7 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 
 db = SQLAlchemy()
-DB_INFO = {
-    'user':'postgres',
-    'password':'',
-    'host':'localhost',
-    'name':'postgres'
-}
-SQLALCHEMY_DATABASE_URI = 'postgresql+psycopg://{user}:{password}:@{host}/{name}'.format(**DB_INFO)
+SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL")
 app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
 db.init_app(app)
 
