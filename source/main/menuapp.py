@@ -20,7 +20,7 @@ app = Flask(__name__)
 
 app.jinja_env.globals['getattr'] = getattr
 
-app.config["SECRET_KEY"] = os.urandom(24)
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
 
 load_dotenv() 
 client = Perplexity() # Uses PERPLEXITY_API_KEY from .env file
