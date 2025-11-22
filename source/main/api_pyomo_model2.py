@@ -69,7 +69,11 @@ def create_meal_plan_model(
         # 主食がご飯もの・パスタの場合は副菜・汁物合わせて1品ずつ計3品
         # ここは副菜・汁物の選択数制約を調整するために条件分け
         # まず主食がご飯もの・パスタか判定
-        staple_kind2 = [recipe_dict[r]['kind2'] for r in m.staple_recipes if pyo.value(m.x_staple[d, r]) if hasattr(pyo.value(m.x_staple[d, r]), '__float__') else False]
+        staple_kind2 = [
+            recipe_dict[r]['kind2'] 
+            for r in m.staple_recipes 
+            if hasattr(pyo.value(m.x_staple[d, r]), '__float__') and pyo.value(m.x_staple[d, r]) > 0.5
+        ]
         # Pyomo変数は条件に使えないため、静的に制約を分けるのは不可
         # したがって、主食がご飯もの・パスタのレシピを選択した場合、副菜・汁物は1品ずつ
         # ここは制約を緩和し、主食がご飯もの・パスタの場合は副菜・汁物の合計が2品以下になるようにする

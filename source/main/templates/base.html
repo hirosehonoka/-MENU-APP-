@@ -8,17 +8,22 @@
 </head>
 <body>
     <div class="mx-4 mt-2">
-        <!-- Rakuten Web Services Attribution Snippet FROM HERE -->
-        <a href="https://webservice.rakuten.co.jp/" target="_blank"><img src="https://webservice.rakuten.co.jp/img/credit/200709/credit_31130.gif" border="0" alt="Rakuten Web Service Center" title="Rakuten Web Service Center" width="311" height="30"/></a>
-        <!-- Rakuten Web Services Attribution Snippet TO HERE -->
+        <div class="d-flex flex-row-reverse my-3">
+            <!-- Rakuten Web Services Attribution Snippet FROM HERE -->
+            <a href="https://webservice.rakuten.co.jp/" target="_blank"><img src="https://webservice.rakuten.co.jp/img/credit/200709/credit_31130.gif" border="0" alt="Rakuten Web Service Center" title="Rakuten Web Service Center" width="311" height="30"/></a>
+            <!-- Rakuten Web Services Attribution Snippet TO HERE -->
+        </div>
         {% if show_navbar %}
             {% block navbar %}
             <ul class="nav nav-underline mx-3">
                 <li class="nav-item">
-                    <a class="nav-link text-dark {% if current_page == 'menu' %}active{% endif %}" href="/menu">献立一覧</a>
+                    <a class="nav-link text-dark {% if current_page == 'showmenu' %}active{% endif %}" href="/showmenu">献立一覧</a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link text-dark {% if current_page == 'item' %}active{% endif %}" href="/item">食材一覧</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link text-dark {% if current_page == 'nutrition' %}active{% endif %}" href="/nutrition">栄養一覧</a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link text-dark {% if current_page == 'registitem' %}active{% endif %}" href="/registitem">献立作成</a>

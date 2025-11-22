@@ -4,7 +4,8 @@
 
 <div class="text-center mt-5 mb-3">
     <h2>家にある食材の登録</h2>
-    <p>※表記揺れ防止のため検索したのち候補から当てはまる食材名を選択してください</p><br>
+    <p>※表記揺れ防止のため検索したのち候補から当てはまる食材名を選択してください</p>
+    <p>※エラー防止のため量(g)の項目には半角数字のみ入力してください</p><br>
 </div>
 <!-- 候補リストを作成 -->
 <datalist id="item-list">
@@ -167,13 +168,18 @@
             addRow();
             </script>
         </div>
-        <button type="button" onclick="addRow()">＋食材追加</button><br>
+        <button type="button" class="btn btn-link text-body-secondary" style="text-decoration:none;" onclick="addRow()">＋食材追加</button><br>
         <div class="text-center mt-5">
-            <button type="button" onclick="sendForm()" class="btn btn-primary btn-lg w-50 ">登録</button>
+            <button type="button" onclick="sendForm()" class="btn btn-primary btn-lg w-50" id="createBtn">登録・献立作成</button>
         </div>
     </form>
-    <script>
-    function sendForm() {
+</div>
+<script>
+function sendForm() {
+    const btn = document.getElementById("createBtn");
+    btn.disabled = true;   // ← 連打防止
+    btn.innerText = "作成中...";
+
     let items = document.querySelectorAll('input[name="item"]');
     let weights = document.querySelectorAll('input[name="weight"]');
     let dict = {};
@@ -182,22 +188,27 @@
         let weight = parseFloat(weights[i].value);
         if(item && !isNaN(weight)) dict[item] = weight;
     }
+
     fetch('/createmenu', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(dict)
+    })
+    .then(response => {
+        if (response.ok) {
+            window.location.href = '/showmenu';
+        } else {
+            alert('献立作成に失敗しました。');
+            btn.disabled = false;     // ← 失敗したら復帰
+            btn.innerText = "登録・献立作成";
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('通信エラーが発生しました。');
+        btn.disabled = false;         // ← 復帰
+        btn.innerText = "登録・献立作成";
     });
-    }
-    </script>
-
-    <!-- <form method="POST" style="width: 600px;">
-        <div class="mb-3">
-            <label for='registItem' class="form-label">食材と量(g)</label>
-            <textarea type="text" class="form-control w-100" name="registItem" id="registItem" rows="6" placeholder="記入例）人参：５０g、大根：１００g"></textarea><br>
-        </div>
-        <div class="text-center mt-5">
-            <button type="submit" class="btn btn-primary btn-lg w-50">登録</button>
-        </div>
-    </form> -->
-</div>
+}
+</script>
 {% endblock %}
