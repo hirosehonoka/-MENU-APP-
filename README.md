@@ -15,3 +15,12 @@ local --> github
 
 Flaskコマンドが作動しなくなったら
 - `source .venv/bin/activate`
+
+Herokuのデータベースを見る方法
+- `heroku pg:psql -a menuapp`
+
+Herokuのアプリの停止
+- `heroku ps:scale web=0 -a menuapp`
+
+- Herokuのアプリの開始
+- `heroku ps:scale web=1 -a menuapp`
