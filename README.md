@@ -24,3 +24,22 @@ Herokuのアプリの停止
 
 - Herokuのアプリの開始
 - `heroku ps:scale web=1 -a menuapp`
+
+`
+CREATE TABLE generated_menu_test2_5
+(
+  LIKE public.generated_menu_solver INCLUDING ALL
+);
+
+CREATE SEQUENCE generated_menu_test2_5_id_seq
+    INCREMENT BY 1
+    MINVALUE 1
+    START WITH 1
+    NO CYCLE;
+
+ALTER TABLE generated_menu_test2_5
+    ALTER COLUMN id SET DEFAULT nextval('generated_menu_test2_id_seq'::regclass);
+`
+
+`python -m venv .venv`
+`source .venv/bin/activate`
